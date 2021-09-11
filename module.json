@@ -1,0 +1,16 @@
+{
+  "name": "choosy",
+  "title": "Choosy",
+  "description": "",
+  "author": "ZoltanTheDM",
+  "version": "0.0.0",
+  "esmodules": ["scripts/choosy-main.js"],
+  "styles": ["styles/style.css"],
+  "minimumCoreVersion": "0.8.9",
+  "compatibleCoreVersion": "0.8.9",
+  "system": "dnd5e",
+  "manifest": "",
+  "url": "",
+  "download": "",
+  "dependencies" : []
+}
