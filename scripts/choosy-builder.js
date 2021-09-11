@@ -1,6 +1,4 @@
 
-
-
 class ChoosyBuilder extends Application{
 
 	constructor(){
@@ -13,7 +11,7 @@ class ChoosyBuilder extends Application{
 		const options = super.defaultOptions;
 		options.id = "choosy-builder";
 		options.template = "modules/choosy/templates/blankForm.html"
-		options.resizable = false;
+		options.resizable = true;
 		options.height = "auto";
 		options.width = 400;
 		options.minimizable = true;
@@ -38,7 +36,7 @@ class ChoosyBuilder extends Application{
 		}
 
 		let uuid = ChoosyBuilder.makeUuid(data);
-		return await fromUuid(uuid);
+		return fromUuid(uuid);
 	}
 
 	makeData(item){
@@ -54,123 +52,177 @@ class ChoosyBuilder extends Application{
 
 		if (!this.targetItem){
 			//drop item in target
-			html.find(".target-box").on("drop", null, async function(ev){
-				let data = JSON.parse(ev.originalEvent.dataTransfer.getData("Text"));
-
-				let item = await this.getItem(data);
-				this.targetItem = this.makeData(item);
-
-				let oldChoices = item.data.flags.choosy?.choices;
-
-				if (oldChoices){
-					this.currentChoices = await Promise.all(
-						oldChoices.map(async (choice)=>{
-							let ch = new Choice(this);
-
-							ch.name = choice.name;
-							ch.items = await Promise.all(choice.given.map(itemUuid=>{
-									return fromUuid(itemUuid).
-										then(res => this.makeData(res));
-								}));
-
-							return ch
-						})
-					);
-				}
-
-				this.render();
-			}.bind(this));
+			html.find(".target-box").on("drop", null, this._newTargetItem.bind(this));
 
 			return;
 		}
 
 		//control buttons for target item
-		html.find(".remove-target").on("click", null, function(ev){
-			this.targetItem = undefined;
-			this.currentChoices = [];
-
-			this.render();
-		}.bind(this));
-
-		html.find(".target-item-edit").on("click", null, async function(ev){
-			(await fromUuid(this.targetItem.uuid)).sheet.render(true);
-		}.bind(this));
+		html.find(".remove-target").on("click", null, this._clearTargetItem.bind(this));
+		html.find(".target-item-edit").on("click", null, this._editTargetItem.bind(this));
 
 
 		//overall choice handlers
-		html.find(".create-new-choice").on("click", null, async function(ev){
-			this.currentChoices.push(new Choice(this));
-
-			this.render();
-		}.bind(this));
+		html.find(".create-new-choice").on("click", null, this._addNewChoice.bind(this));
 
 		//single choice handlers
-		html.find(".remove-choice").on("click", null, async function(ev){
-			let listItem = ev.target.closest(".choosy-choice-set")
-			this.currentChoices.splice(parseInt(listItem.dataset.index), 1);
-
-			this.render();
-		}.bind(this))
-
-		html.find(".choice-name-input").on("input", null, async function(ev){
-			let listItem = ev.target.closest(".choosy-choice-set")
-			let a = this.currentChoices[parseInt(listItem.dataset.index)]
-
-			a.name = ev.target.value;
-		}.bind(this))
-
-		html.find(".new-choice-box").on("drop", null, async function(ev){
-			let data = JSON.parse(ev.originalEvent.dataTransfer.getData("Text"));
-			let itemData = this.makeData(await this.getItem(data));
-
-			let listItem = ev.target.closest(".choosy-choice-set")
-			let choice = this.currentChoices[parseInt(listItem.dataset.index)]
-
-			choice.pushNewItem(await itemData);
-
-			this.render();
-		}.bind(this));
+		html.find(".remove-choice").on("click", null, this._removeChoice.bind(this))
+		html.find(".choice-name-input").on("input", null, this._changeChoiceName.bind(this))
+		html.find(".new-choice-box").on("drop", null, this._newChoiceBox.bind(this));
 
 		//edit choices items
-		html.find(".choice-item-edit").on("click", null, async function(ev){
-			let choiceIndex = parseInt(ev.target.closest(".choosy-choice-set").dataset.index)
-			let itemIndex = parseInt(ev.target.closest(".choice-item-line").dataset.index)
-
-			let item = await fromUuid(this.currentChoices[choiceIndex].items[itemIndex].uuid);
-			item.sheet.render(true);
-		}.bind(this));
-
-		html.find(".remove-choice-item").on("click", null, async function(ev){
-			let choiceIndex = parseInt(ev.target.closest(".choosy-choice-set").dataset.index)
-			let itemIndex = parseInt(ev.target.closest(".choice-item-line").dataset.index)
-
-			this.currentChoices[choiceIndex].items.splice(itemIndex, 1);
-			this.render(true)
-		}.bind(this));
+		html.find(".choice-item-edit").on("click", null, this._choosyItemEdit.bind(this));
+		html.find(".remove-choice-item").on("click", null, this._removeChoiceItem.bind(this));
 
 		//new choice and item box handler
 
-		html.find(".new-choice-and-item-box").on("drop", null, async function(ev){
-			let data = JSON.parse(ev.originalEvent.dataTransfer.getData("Text"));
-			let itemData = this.makeData(await this.getItem(data));
+		html.find(".new-choice-and-item-box").on("drop", null, this._makeChoiceAndItem.bind(this))
+		html.find(".make-choosy-item").on("click", null, this._makeChoosyItem.bind(this))
+	}
 
-			this.currentChoices.push(new Choice(this));
-			this.currentChoices[this.currentChoices.length - 1].pushNewItem(await itemData);
+	async _newTargetItem(ev){
+		let data = JSON.parse(ev.originalEvent.dataTransfer.getData("Text"));
 
-			this.render(true);
-		}.bind(this))
+		let item = await this.getItem(data);
 
-		html.find(".make-choosy-item").on("click", null, async function(ev){
-			let itemData = await fromUuid(this.targetItem.uuid)
+		if (!item){
+			ui.notifications.error("Dropped item not found!");
+			return;
+		}
 
-			let merged = mergeObject(itemData.toObject(),
-				{'flags.choosy': {
-					choices: this.currentChoices.map(c => c.toObject())
-				}, name: "test"})
-			let item = await Item.create(merged)
-			console.log(item)
-		}.bind(this))
+		this.targetItem = this.makeData(item);
 
+		let oldChoices = item.data.flags.choosy?.choices;
+
+		if (oldChoices){
+			this.currentChoices = await Promise.all(
+				oldChoices.map(async (choice)=>{
+					let ch = new Choice(this);
+
+					ch.name = choice.name;
+					ch.items = await Promise.all(choice.given.map(itemUuid=>{
+							return fromUuid(itemUuid).
+								then(res => {
+									if (res){
+										return this.makeData(res)
+									}
+								});
+						}));
+
+					return ch
+				})
+			);
+
+			console.log(this.currentChoices);
+		}
+
+		this.render();
+	}
+
+	_clearTargetItem(ev){
+		this.targetItem = undefined;
+		this.currentChoices = [];
+
+		this.render();
+	}
+
+	async _editTargetItem(ev){
+		let item = await fromUuid(this.targetItem.uuid);
+
+		if (!item){
+			ui.notifications.error("Target item not found!");
+			return;
+		}
+
+		item.sheet.render(true);
+	}
+
+	async _addNewChoice(ev){
+		this.currentChoices.push(new Choice(this));
+
+		this.render();
+	}
+
+	async _removeChoice(ev){
+		let listItem = ev.target.closest(".choosy-choice-set")
+		this.currentChoices.splice(parseInt(listItem.dataset.index), 1);
+
+		this.render();
+	}
+
+	async _changeChoiceName(ev){
+		let listItem = ev.target.closest(".choosy-choice-set")
+		let a = this.currentChoices[parseInt(listItem.dataset.index)]
+
+		a.name = ev.target.value;
+	}
+
+	async _newChoiceBox(ev){
+		let data = JSON.parse(ev.originalEvent.dataTransfer.getData("Text"));
+		let item = await this.getItem(data);
+
+		if (!item){
+			ui.notifications.error("Failed to get item from drop event");
+			return;
+		}
+
+		let itemData = this.makeData(item);
+
+		let listItem = ev.target.closest(".choosy-choice-set")
+		let choice = this.currentChoices[parseInt(listItem.dataset.index)]
+
+		choice.pushNewItem(await itemData);
+
+		this.render();
+	}
+
+	async _choosyItemEdit(ev){
+		let choiceIndex = parseInt(ev.target.closest(".choosy-choice-set").dataset.index)
+		let itemIndex = parseInt(ev.target.closest(".choice-item-line").dataset.index)
+
+		let item = await fromUuid(this.currentChoices[choiceIndex].items[itemIndex].uuid);
+
+		if (!item){
+			ui.notifications.error("Item in choice no longer exists! You probably want to remove it");
+			return;
+		}
+
+		item.sheet.render(true);
+	}
+
+	async _removeChoiceItem(ev){
+		let choiceIndex = parseInt(ev.target.closest(".choosy-choice-set").dataset.index)
+		let itemIndex = parseInt(ev.target.closest(".choice-item-line").dataset.index)
+
+		this.currentChoices[choiceIndex].items.splice(itemIndex, 1);
+		this.render(true);
+	}
+
+	async _makeChoiceAndItem(ev){
+		let data = JSON.parse(ev.originalEvent.dataTransfer.getData("Text"));
+		let item = await this.getItem(data);
+
+		if (!item){
+			ui.notifications.error("Failed to get item from drop event");
+			return;
+		}
+
+		let itemData = this.makeData(item);
+
+		this.currentChoices.push(new Choice(this));
+		this.currentChoices[this.currentChoices.length - 1].pushNewItem(itemData);
+
+		this.render(true);
+	}
+
+	async _makeChoosyItem(ev){
+		let itemData = await fromUuid(this.targetItem.uuid)
+
+		let merged = mergeObject(itemData.toObject(),
+			{'flags.choosy': {
+				choices: this.currentChoices.map(c => c.toObject())
+			}})
+		let item = await Item.create(merged)
 	}
 
 	getClosestChoiceToEvent(ev){
@@ -189,7 +241,7 @@ class ChoosyBuilder extends Application{
 			<div>${this.targetItem.name}</div>
 			<div class="choosy-builder-qualifier item-controls flexrow">
 			<a class="target-item-edit" ><i class="fas fa-edit"></i></a>
-			<a class="remove-target" ><i class="fas fa-trash"></i></a>
+			<a class="remove-target" ><i class="fas fa-times"></i></a>
 			</div>
 		</div>`
 	}
@@ -207,7 +259,7 @@ class ChoosyBuilder extends Application{
 	}
 
 	getMakeItButton(){
-		return `<h1 class="make-choosy-item" id="a-uniquq-id" >Make It</h1>`
+		return `<h1 class="make-choosy-item">Make It</h1>`
 	}
 
 	async getData(){
@@ -244,20 +296,48 @@ class Choice{
 		}
 	}
 
+	static getItemDisplay(item){
+		if (item){
+			return Choice.getFilledItemDisplay(item);
+		}
+		else{
+			return Choice.getEmptyItemDisplay(item);
+		}
+	}
+
+	static getFilledItemDisplay(item){
+		return `<div class="flexrow choosy-builder-qualifier item">
+			<div class="choosy-builder-qualifier item-image" style="background-image: url('${item.img}')"></div>
+			<div>${item.name}</div>
+			<div class="choosy-builder-qualifier item-controls flexrow">
+			<a class="choice-item-edit" ><i class="fas fa-edit"></i></a>
+			<a class="remove-choice-item" ><i class="fas fa-times"></i></a>
+			</div>
+		</div>`
+	}
+
+	static getEmptyItemDisplay(item){
+		return `<div class="flexrow choosy-builder-qualifier item">
+			<div>Missing Item, Delete Me</div>
+			<div class="choosy-builder-qualifier item-controls flexrow">
+			<a class="remove-choice-item" ><i class="fas fa-times"></i></a>
+			</div>
+		</div>`
+	}
+
 	getListItem(index){
 		return `<li class="choosy-choice-set" data-index="${index}">
-		<h3>Choice: <input class="choice-name-input" type="string" value="${this.name}"><a class="remove-choice" ><i class="fas fa-trash"></i></a></h3>
+		<div class="flexrow choosy-builder-qualifier item">
+			<div>Choice: </div>
+			<input class="choice-name-input" type="string" value="${this.name}">
+			<div class="choosy-builder-qualifier item-controls flexrow">
+			<a class="remove-choice" ><i class="fas fa-trash"></i></a>
+			</div>
+		</div>
 		<ol>
-		${this.items.reduce((acc, val, index) => {
+		${this.items.reduce((acc, item, index) => {
 			return acc + `<li class="choice-item-line" data-index="${index}">
-				<div class="flexrow choosy-builder-qualifier item">
-					<div class="choosy-builder-qualifier item-image" style="background-image: url('${val.img}')"></div>
-					<div>${val.name}</div>
-					<div class="choosy-builder-qualifier item-controls flexrow">
-					<a class="choice-item-edit" ><i class="fas fa-edit"></i></a>
-					<a class="remove-choice-item" ><i class="fas fa-trash"></i></a>
-					</div>
-				</div>
+				${Choice.getItemDisplay(item)}
 			</li>`
 		}, "")}
 		</ol>
@@ -266,8 +346,20 @@ class Choice{
 	}
 
 	toObject(){
+		let usableName = this.name;
+
+		if (usableName == ""){
+			if(this.items.length > 0){
+				ui.notifications.info("Choice has no name, using first item's name");
+				usableName = this.items[0].name;
+			}
+			else{
+				ui.notifications.warn("Choice has no name, and no items, choice will look funny");
+			}
+		}
+
 		return {
-			name: this.name,
+			name: usableName,
 			given: this.items.map(val => val.uuid)
 		}
 	}

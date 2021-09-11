@@ -50,3 +50,8 @@
 	height: 50px
 }
 
+.choosy-selector-qualifier.choice-button {
+	border: 2px solid grey;
+	height: 50px
+}
+

@@ -53,13 +53,19 @@ class ChoosySelector extends Application{
 			return;
 		}
 
-		this.actor.createEmbeddedDocuments("Item",
-			await Promise.all(item.data.flags.choosy.choices[choiceIndex].given.map((val)=>{
-				return fromUuid(val).then(res => res.toObject());
-			}))
-		);
+		let givenItems = await Promise.all(item.data.flags.choosy.choices[choiceIndex].given.map((val)=>{
+			return fromUuid(val).then(res => {
+				if (res){
+					return res.toObject();
+				}
+				else{
+					ui.notifications.warn("Choice had an item that no longer exists");
+				}
+			});
+		}))
 
-		// let choiceMadeFlags = this.actor.data.flags?.choosy?.choice_made ?? {}
+		this.actor.createEmbeddedDocuments("Item", givenItems.filter(f => !!f));
+
 		let choiceMadeFlags = this.actor.getFlag(CHOOSY_SCOPE, CHOICE_KEY) ?? {}
 
 		choiceMadeFlags[item.id] = {choice: choiceIndex};
@@ -114,7 +120,9 @@ class ChoosySelector extends Application{
 					<div class="flexrow">${
 						item.data.flags.choosy.choices.reduce((choiceButtons, choice, index)=>{
 							return choiceButtons + `
-								<a class="choice-selector-choose" data-index="${index}">${choice.name}</a>
+								<a class="choice-selector-choose choosy-selector-qualifier choice-button" data-index="${index}">
+								${choice.name}
+								</a>
 							`;
 						}, "")
 					}</div>
