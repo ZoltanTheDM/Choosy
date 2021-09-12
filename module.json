@@ -12,5 +12,5 @@
   "manifest": "",
   "url": "",
   "download": "",
-  "dependencies" : []
+  "dependencies" : [{"name":"advanced-macros", "type": "module"}]
 }

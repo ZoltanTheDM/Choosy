@@ -5,7 +5,7 @@ const CHOICE_KEY = "choice_made";
 
 class ChoosySelector extends Application{
 	static HandleNewItem(item){
-		if (item.parent && item.data.flags.choosy){
+		if (item.parent && item.data.flags.choosy?.choices.length > 0){
 			new ChoosySelector(item.parent).render(true)
 		}
 	}
@@ -24,7 +24,6 @@ class ChoosySelector extends Application{
 	static get defaultOptions()
 	{
 		const options = super.defaultOptions;
-		options.id = `choosy-selector`;
 		options.template = "modules/choosy/templates/blankForm.html"
 		options.resizable = true;
 		options.height = "auto";
@@ -53,8 +52,11 @@ class ChoosySelector extends Application{
 			return;
 		}
 
-		let givenItems = await Promise.all(item.data.flags.choosy.choices[choiceIndex].given.map((val)=>{
-			return fromUuid(val).then(res => {
+		let given = item.data.flags.choosy.choices[choiceIndex].given
+
+		// Give all items
+		let givenItems = await Promise.all(given.filter(val => val.type == "Item").map((val)=>{
+			return fromUuid(val.uuid).then(res => {
 				if (res){
 					return res.toObject();
 				}
@@ -64,7 +66,23 @@ class ChoosySelector extends Application{
 			});
 		}))
 
-		this.actor.createEmbeddedDocuments("Item", givenItems.filter(f => !!f));
+		await this.actor.createEmbeddedDocuments("Item", givenItems.filter(f => !!f));
+
+		// Execute macros
+
+		given.forEach((val)=>{
+			if (val.type != "Macro"){
+				return;
+			}
+
+			fromUuid(val.uuid).then(macro => {
+				if (macro){
+					this._executeMacro(macro, val.args, item)
+				}
+			});
+		})
+
+		// Say item has had it's choice made
 
 		let choiceMadeFlags = this.actor.getFlag(CHOOSY_SCOPE, CHOICE_KEY) ?? {}
 
@@ -75,10 +93,54 @@ class ChoosySelector extends Application{
 		this.checkForRender();
 	}
 
+	//using advanced macros
+	_executeMacro(sourceMacro, argsStr, item){
+		let matches = argsStr.matchAll(/(("(?<st1>[^"]*)")|(?<st2>\S+))/g)
+
+		try{
+			sourceMacro.execute({actor: this.actor, item},
+				...([...matches].map(match => match.groups.st1 || match.groups.st2 || "")))
+		catch(e){
+			let err = `Got an error in the script "${sourceMacro.name}": ${e}`;
+			console.error(err);
+			ui.notifications.error(err);
+		}
+	}
+
+	//Old School
+	//sans advanced macros
+	// _executeMacroOld(sourceMacro, argsStr){
+
+	// 	let macroCommand = sourceMacro.data.command;
+
+	// 	let matches = argsStr.matchAll(/(("(?<st1>[^"]*)")|(?<st2>\S+))/g)
+
+	// 	let args = "[" + [...matches].map(match => `"${match.groups.st1 || match.groups.st2 || ""}"`) + "]"
+
+	// 	Macro.create({
+	// 			name: "ChoosyScript",
+	// 			type: "script",
+	// 			img: null,
+	// 			command: `let args = ${args};` + macroCommand
+	// 		}, { displaySheet: false, temporary: true }).
+	// 		then(mac => {
+	// 			try{
+	// 				mac.execute({actor: this.actor})
+	// 			}
+	// 			catch(e){
+	// 				let err = `Got an error in the run script: ${e}`;
+	// 				console.error(err);
+	// 				ui.notifications.error(err);
+	// 			}
+
+	// 		})
+	// }
+
+
 	async getChoosyItems(){
 		let choiceMadeFlags = await this.actor.getFlag(CHOOSY_SCOPE, CHOICE_KEY) ?? {};
 
-		return this.actor.items.filter(item => item.data.flags.choosy && !(item.id in choiceMadeFlags));
+		return this.actor.items.filter(item => (item.data.flags.choosy?.choices.length > 0) && !(item.id in choiceMadeFlags));
 	}
 
 	async checkForRender(){

@@ -19,31 +19,37 @@ class ChoosyBuilder extends Application{
 		return options;
 	}
 
-	static makeUuid(data){
+	static makeUuid(data, type){
 		if ("pack" in data){
 			//is from compendium
 			return `Compendium.${data["pack"]}.${data["id"]}`;
 		}
 
 		//it is an item from the world
-		return `Item.${data.id}`;
+		return `${type}.${data.id}`;
 	}
 
 	async getItem(data){
-		if (data["type"] != "Item"){
-			console.warn(`can't add ${data} because it is not an Item`);
-			return;
+		if (data["type"] == "Item"){
+			let uuid = ChoosyBuilder.makeUuid(data, "Item");
+			return fromUuid(uuid);
 		}
 
-		let uuid = ChoosyBuilder.makeUuid(data);
-		return fromUuid(uuid);
+		if (data["type"] == "Macro"){
+			let uuid = ChoosyBuilder.makeUuid(data, "Macro");
+			return fromUuid(uuid);
+		}
+
+		console.warn(`can't add ${data} because it is not an Item`);
+		return;
 	}
 
 	makeData(item){
 		return {
 			name: item.data.name,
 			img: item.data.img,
-			uuid: item.uuid
+			uuid: item.uuid,
+			type: item.documentName
 		};
 	}
 
@@ -71,6 +77,7 @@ class ChoosyBuilder extends Application{
 		html.find(".new-choice-box").on("drop", null, this._newChoiceBox.bind(this));
 
 		//edit choices items
+		html.find(".macro-args-change").on("input", null, this._changeMarcoArgs.bind(this))
 		html.find(".choice-item-edit").on("click", null, this._choosyItemEdit.bind(this));
 		html.find(".remove-choice-item").on("click", null, this._removeChoiceItem.bind(this));
 
@@ -90,6 +97,11 @@ class ChoosyBuilder extends Application{
 			return;
 		}
 
+		if (item.documentName != "Item"){
+			ui.notifications.error("Targeted item must be an item document class");
+			return;
+		}
+
 		this.targetItem = this.makeData(item);
 
 		let oldChoices = item.data.flags.choosy?.choices;
@@ -100,11 +112,18 @@ class ChoosyBuilder extends Application{
 					let ch = new Choice(this);
 
 					ch.name = choice.name;
-					ch.items = await Promise.all(choice.given.map(itemUuid=>{
-							return fromUuid(itemUuid).
+					ch.items = await Promise.all(choice.given.map(item =>{
+
+							return fromUuid(item.uuid).
 								then(res => {
 									if (res){
-										return this.makeData(res)
+										let out = this.makeData(res)
+
+										if (item.type == "Macro"){
+											out.args = item.args;
+										}
+
+										return out
 									}
 								});
 						}));
@@ -113,7 +132,6 @@ class ChoosyBuilder extends Application{
 				})
 			);
 
-			console.log(this.currentChoices);
 		}
 
 		this.render();
@@ -174,6 +192,15 @@ class ChoosyBuilder extends Application{
 		choice.pushNewItem(await itemData);
 
 		this.render();
+	}
+
+	async _changeMarcoArgs(ev){
+		let choiceIndex = parseInt(ev.target.closest(".choosy-choice-set").dataset.index)
+		let itemIndex = parseInt(ev.target.closest(".choice-item-line").dataset.index)
+
+		let a = this.currentChoices[choiceIndex].items[itemIndex]
+
+		a.args = ev.target.value;
 	}
 
 	async _choosyItemEdit(ev){
@@ -297,12 +324,18 @@ class Choice{
 	}
 
 	static getItemDisplay(item){
-		if (item){
+		if (!item){
+			return Choice.getEmptyDisplay(item);
+		}
+
+		if (item.type == "Item"){
 			return Choice.getFilledItemDisplay(item);
 		}
-		else{
-			return Choice.getEmptyItemDisplay(item);
+		else if (item.type == "Macro"){
+			return Choice.getFilledMacroDisplay(item);
 		}
+
+		return Choice.getEmptyDisplay(item);
 	}
 
 	static getFilledItemDisplay(item){
@@ -316,7 +349,19 @@ class Choice{
 		</div>`
 	}
 
-	static getEmptyItemDisplay(item){
+	static getFilledMacroDisplay(item){
+		return `<div class="flexrow choosy-builder-qualifier item">
+			<div class="choosy-builder-qualifier item-image" style="background-image: url('${item.img}')"></div>
+			<div>${item.name}</div>
+			<input class="macro-args-change" type="string" value="${item.args ?? ""}">
+			<div class="choosy-builder-qualifier item-controls flexrow">
+				<a class="choice-item-edit" ><i class="fas fa-edit"></i></a>
+				<a class="remove-choice-item" ><i class="fas fa-times"></i></a>
+			</div>
+		</div>`
+	}
+
+	static getEmptyDisplay(item){
 		return `<div class="flexrow choosy-builder-qualifier item">
 			<div>Missing Item, Delete Me</div>
 			<div class="choosy-builder-qualifier item-controls flexrow">
@@ -360,7 +405,18 @@ class Choice{
 
 		return {
 			name: usableName,
-			given: this.items.map(val => val.uuid)
+			given: this.items.map(val => {
+				let a = {
+					type: val.type,
+					uuid: val.uuid
+				};
+
+				if (val.type == "Macro"){
+					a.args = val.args || "";
+				}
+
+				return a;
+			})
 		}
 	}
 }
