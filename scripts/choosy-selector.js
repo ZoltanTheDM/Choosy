@@ -6,7 +6,13 @@ const CHOICE_KEY = "choice_made";
 class ChoosySelector extends Application{
 	static HandleNewItem(item){
 		if (item.parent && item.data.flags.choosy?.choices.length > 0){
-			new ChoosySelector(item.parent).render(true)
+			console.log(ChoosySelector.current)
+			if (!ChoosySelector.current){
+				ChoosySelector.current = new ChoosySelector(item.parent).render(true);
+			}
+			else{
+				ChoosySelector.current.render();
+			}
 		}
 	}
 
@@ -100,11 +106,17 @@ class ChoosySelector extends Application{
 		try{
 			sourceMacro.execute({actor: this.actor, item},
 				...([...matches].map(match => match.groups.st1 || match.groups.st2 || "")))
+		}
 		catch(e){
 			let err = `Got an error in the script "${sourceMacro.name}": ${e}`;
 			console.error(err);
 			ui.notifications.error(err);
 		}
+	}
+
+	close(){
+		super.close();
+		ChoosySelector.current = undefined;
 	}
 
 	//Old School

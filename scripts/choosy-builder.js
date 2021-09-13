@@ -1,4 +1,8 @@
 
+const PACK_NAME = "choosy-temp-items";
+const PACK_FULL = `world.${PACK_NAME}`
+const DATA_TYPE = "text/plain";
+
 class ChoosyBuilder extends Application{
 
 	constructor(){
@@ -40,7 +44,7 @@ class ChoosyBuilder extends Application{
 			return fromUuid(uuid);
 		}
 
-		console.warn(`can't add ${data} because it is not an Item`);
+		console.warn(`can't add ${data} because it is not an Item or Macro`);
 		return;
 	}
 
@@ -84,11 +88,11 @@ class ChoosyBuilder extends Application{
 		//new choice and item box handler
 
 		html.find(".new-choice-and-item-box").on("drop", null, this._makeChoiceAndItem.bind(this))
-		html.find(".make-choosy-item").on("click", null, this._makeChoosyItem.bind(this))
+		html.find(".full-window").on("dragstart", null, this._dragStart.bind(this))
 	}
 
 	async _newTargetItem(ev){
-		let data = JSON.parse(ev.originalEvent.dataTransfer.getData("Text"));
+		let data = JSON.parse(ev.originalEvent.dataTransfer.getData(DATA_TYPE));
 
 		let item = await this.getItem(data);
 
@@ -134,6 +138,7 @@ class ChoosyBuilder extends Application{
 
 		}
 
+		this.updateOutputItem();
 		this.render();
 	}
 
@@ -158,6 +163,7 @@ class ChoosyBuilder extends Application{
 	async _addNewChoice(ev){
 		this.currentChoices.push(new Choice(this));
 
+		this.updateOutputItem();
 		this.render();
 	}
 
@@ -165,6 +171,7 @@ class ChoosyBuilder extends Application{
 		let listItem = ev.target.closest(".choosy-choice-set")
 		this.currentChoices.splice(parseInt(listItem.dataset.index), 1);
 
+		this.updateOutputItem();
 		this.render();
 	}
 
@@ -173,10 +180,17 @@ class ChoosyBuilder extends Application{
 		let a = this.currentChoices[parseInt(listItem.dataset.index)]
 
 		a.name = ev.target.value;
+		this.updateOutputItem();
 	}
 
 	async _newChoiceBox(ev){
-		let data = JSON.parse(ev.originalEvent.dataTransfer.getData("Text"));
+		let data = JSON.parse(ev.originalEvent.dataTransfer.getData(DATA_TYPE));
+
+		//can't add self
+		if (data.pack == PACK_FULL){
+			return;
+		}
+
 		let item = await this.getItem(data);
 
 		if (!item){
@@ -191,6 +205,7 @@ class ChoosyBuilder extends Application{
 
 		choice.pushNewItem(await itemData);
 
+		this.updateOutputItem();
 		this.render();
 	}
 
@@ -201,6 +216,7 @@ class ChoosyBuilder extends Application{
 		let a = this.currentChoices[choiceIndex].items[itemIndex]
 
 		a.args = ev.target.value;
+		this.updateOutputItem();
 	}
 
 	async _choosyItemEdit(ev){
@@ -222,11 +238,18 @@ class ChoosyBuilder extends Application{
 		let itemIndex = parseInt(ev.target.closest(".choice-item-line").dataset.index)
 
 		this.currentChoices[choiceIndex].items.splice(itemIndex, 1);
+		this.updateOutputItem();
 		this.render(true);
 	}
 
 	async _makeChoiceAndItem(ev){
-		let data = JSON.parse(ev.originalEvent.dataTransfer.getData("Text"));
+		let data = JSON.parse(ev.originalEvent.dataTransfer.getData(DATA_TYPE));
+
+		//can't add self
+		if (data.pack == PACK_FULL){
+			return;
+		}
+
 		let item = await this.getItem(data);
 
 		if (!item){
@@ -239,21 +262,71 @@ class ChoosyBuilder extends Application{
 		this.currentChoices.push(new Choice(this));
 		this.currentChoices[this.currentChoices.length - 1].pushNewItem(itemData);
 
+		this.updateOutputItem();
 		this.render(true);
 	}
 
 	async _makeChoosyItem(ev){
 		let itemData = await fromUuid(this.targetItem.uuid)
 
+		if(!itemData){
+			ui.notifications.error("Can't make item because initial item no longer exists");
+			return;
+		}
+
 		let merged = mergeObject(itemData.toObject(),
 			{'flags.choosy': {
 				choices: this.currentChoices.map(c => c.toObject())
 			}})
+
 		let item = await Item.create(merged)
 	}
 
-	getClosestChoiceToEvent(ev){
-		this.currentChoices[parseInt(ev.target.closest(".choosy-choice-set").dataset.index)]
+	async _dragStart(ev){
+		if (!this.currentChoices.reduce((acc, choice) => {return acc && choice.name != "";}, true)){
+			ui.notifications.warn("At least 1 Choice has no name, choice will look funny");
+		}
+
+		ev.originalEvent.dataTransfer.setData(DATA_TYPE, JSON.stringify({
+			type: "Item",
+			pack: PACK_FULL,
+			id: this.updateItem.id,
+		}));
+	}
+
+	//don't perticularly like this solution but creates a compendium
+	//that maintains a copy of the completed item.
+	//This item is the one that is then dragged and dropped.
+	//Temporary items don't have ids and therefore don't work with the drag
+	//and drop interface
+	async updateOutputItem(){
+		let itemData = await fromUuid(this.targetItem.uuid)
+
+		if(!itemData){
+			ui.notifications.error("Can't make item because initial item no longer exists");
+			return;
+		}
+
+		await ChoosyBuilder.ensureTempCompendium();
+		this.removeOldItems();
+
+		let itemClone = itemData.clone({
+			'flags.choosy.choices': this.currentChoices.map(c => c.toObject())
+		})
+
+		this.updateItem = await Item.create(itemClone.toObject(), {temporary: true}).
+			then(async(res) => {
+				return game.packs.get(PACK_FULL).importDocument(res)
+			});
+	}
+
+	close(){
+		super.close();
+		this.removeOldItems();
+	}
+
+	removeOldItems(){
+		game.packs.get(PACK_FULL).contents.forEach(item => item.delete());
 	}
 
 	getEmptyDiv(){
@@ -285,21 +358,41 @@ class ChoosyBuilder extends Application{
 		</div>`
 	}
 
-	getMakeItButton(){
-		return `<h1 class="make-choosy-item">Make It</h1>`
+	getMakeItMessage(){
+		return `<p>Drag this window to create a new item</p>`
+	}
+
+	wrapDrop(str){
+		return `<div draggable="true" class="full-window">${str}</div>`;
 	}
 
 	async getData(){
 		const sheetData = super.getData();
 
 		if (this.targetItem){
-			sheetData.div = this.getTargetedDiv() + this.getChoicesDiv() + this.getMakeItButton();
+			sheetData.div = this.wrapDrop(this.getTargetedDiv() + this.getChoicesDiv() + this.getMakeItMessage());
 		}
 		else{
 			sheetData.div = this.getEmptyDiv();
 		}
 
 		return sheetData;
+	}
+
+	static async ensureTempCompendium(){
+		let pack = game.packs.get(PACK_FULL);
+
+		if (!pack){
+			return await CompendiumCollection.createCompendium({
+				entity: "Item",
+				label: `${PACK_NAME}`,
+				name: `${PACK_NAME}`,
+				package: "world",
+				private: true
+			})
+		}
+
+		return pack;
 	}
 }
 
@@ -391,20 +484,9 @@ class Choice{
 	}
 
 	toObject(){
-		let usableName = this.name;
-
-		if (usableName == ""){
-			if(this.items.length > 0){
-				ui.notifications.info("Choice has no name, using first item's name");
-				usableName = this.items[0].name;
-			}
-			else{
-				ui.notifications.warn("Choice has no name, and no items, choice will look funny");
-			}
-		}
 
 		return {
-			name: usableName,
+			name: this.name,
 			given: this.items.map(val => {
 				let a = {
 					type: val.type,
