@@ -11,7 +11,7 @@ The Builder is for creating an item's choices. A new button in the items directo
 Drag the item you want to add a choice to into the box.
 Then drag items to be gained or macro to be run when a choice is made. There can be any number of items gained and macros run per choice.
 
-Export the item with pushing the button. (TODO do this with a drag)
+Create the Choosy item by dragging the window to a location - such as the item directory or a character.
 This will create a *new* item with Choosy flags.
 
 ## Choosy Selector
@@ -22,10 +22,9 @@ The window will close when all choices are completed
 
 # TODO
 
-* Drag item out of Builder
-* Multiple layers of choices, with out need for extra items
-* Pick again (remove old items?)
 * Imporved css
-* View what items are gained with each choice
+* Multiple layers of choices, with out need for extra items
 * Extra options and decriptions for the choices
+* View what items are gained with each choice
 * Button or selection style option
+* Pick again (remove old items?)
